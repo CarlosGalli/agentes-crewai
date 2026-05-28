@@ -313,11 +313,25 @@ HTML = r"""<!DOCTYPE html>
                padding: 5px 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
   #btn-abrir:hover { background: var(--teal); }
 
-  /* empty state */
-  #empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
-           flex: 1; color: var(--gray); gap: 8px; }
-  #empty .ico { font-size: 52px; opacity: .3; }
-  #empty p    { font-size: 15px; }
+  /* home screen */
+  #home { display: flex; flex-direction: column; gap: 32px; }
+  .home-section-title { font-size: 11px; font-weight: 700; color: var(--gray);
+                        text-transform: uppercase; letter-spacing: .8px; margin-bottom: 12px; }
+  .home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .home-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+               padding: 18px 20px; display: flex; flex-direction: column; gap: 7px;
+               transition: border-color .15s, box-shadow .15s; }
+  .home-card:hover { border-color: var(--purple); box-shadow: 0 2px 14px rgba(83,74,183,.1); }
+  .home-card-cat  { display: inline-block; font-size: 10px; font-weight: 700;
+                    background: var(--purple-lt); color: var(--purple);
+                    border-radius: 20px; padding: 2px 9px; width: fit-content; }
+  .home-card-name { font-size: 15px; font-weight: 700; color: var(--dark); line-height: 1.3; }
+  .home-card-desc { font-size: 12px; color: var(--gray); line-height: 1.55; flex: 1; }
+  .btn-usar { margin-top: 8px; padding: 7px 18px; background: var(--purple); color: #fff;
+              border: none; border-radius: 7px; font-size: 13px; font-weight: 700;
+              cursor: pointer; transition: background .15s; font-family: inherit;
+              align-self: flex-start; }
+  .btn-usar:hover { background: #3f38a0; }
 </style>
 </head>
 <body>
@@ -331,10 +345,7 @@ HTML = r"""<!DOCTYPE html>
   <div id="sidebar" id="sidebar"></div>
 
   <div id="main">
-    <div id="empty">
-      <div class="ico">🤖</div>
-      <p>Elegí un agente de la lista</p>
-    </div>
+    <div id="home"></div>
     <div id="agente-card" style="display:none">
       <div id="agente-cat"></div>
       <div id="agente-nombre"></div>
@@ -365,6 +376,7 @@ async function init() {
   const d = await r.json();
   AGENTES = d.agentes;
   renderSidebar(d.agentes, d.categorias);
+  renderHome(d.agentes, d.categorias);
 }
 
 function renderSidebar(agentes, categorias) {
@@ -388,6 +400,43 @@ function renderSidebar(agentes, categorias) {
   }
 }
 
+function renderHome(agentes, categorias) {
+  const home = document.getElementById('home');
+  home.innerHTML = '';
+  for (const cat of categorias) {
+    const entries = Object.entries(agentes).filter(([, v]) => v.categoria === cat);
+    if (!entries.length) continue;
+
+    const section = document.createElement('div');
+
+    const title = document.createElement('div');
+    title.className = 'home-section-title';
+    title.textContent = cat;
+    section.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'home-grid';
+
+    for (const [key, ag] of entries) {
+      const card = document.createElement('div');
+      card.className = 'home-card';
+      card.innerHTML = `
+        <div class="home-card-cat">${ag.categoria}</div>
+        <div class="home-card-name">${ag.nombre}</div>
+        <div class="home-card-desc">${ag.descripcion}</div>
+        <button class="btn-usar" data-key="${key}">Usar →</button>`;
+      card.querySelector('.btn-usar').onclick = () => {
+        const sideBtn = document.querySelector(`.ag-btn[data-key="${key}"]`);
+        seleccionar(key, sideBtn);
+      };
+      grid.appendChild(card);
+    }
+
+    section.appendChild(grid);
+    home.appendChild(section);
+  }
+}
+
 // ── seleccionar agente ────────────────────────────────────────────────────────
 function seleccionar(key, btn) {
   document.querySelectorAll('.ag-btn').forEach(b => b.classList.remove('act'));
@@ -395,7 +444,7 @@ function seleccionar(key, btn) {
   agenteActual = key;
   const ag = AGENTES[key];
 
-  document.getElementById('empty').style.display = 'none';
+  document.getElementById('home').style.display = 'none';
   document.getElementById('agente-card').style.display = 'block';
   document.getElementById('agente-cat').textContent    = ag.categoria;
   document.getElementById('agente-nombre').textContent = ag.nombre;
