@@ -1,0 +1,268 @@
+"""
+subir_pdf.py — Sube un PDF resuelto a QuímicaCBC.
+
+Copia el PDF a public/docs/, inserta la tarjeta HTML en la sección
+correcta de public/index.html y hace git add + commit + push.
+
+Uso interactivo:
+    python subir_pdf.py
+
+Uso programático:
+    from subir_pdf import run
+    run(titulo="1er Parcial Di Risio", cuatrimestre="1C 2025",
+        solapa="1er Parcial", ruta_pdf="C:/ruta/archivo.pdf")
+"""
+
+import re
+import shutil
+import subprocess
+import unicodedata
+from pathlib import Path
+
+# ── Rutas fijas del proyecto ──────────────────────────────────────────────────
+REPO_ROOT  = Path(r"C:\Users\carlo\OneDrive\Desktop\quimicacbc")
+DOCS_DIR   = REPO_ROOT / "public" / "docs"
+INDEX_HTML = REPO_ROOT / "public" / "index.html"
+
+SOLAPAS = ["1er Parcial", "2do Parcial", "Finales"]
+TAB_IDS = {
+    "1er Parcial": "primer",
+    "2do Parcial": "segundo",
+    "Finales":     "finales",
+}
+PLACEHOLDER = {
+    "2do Parcial": "Próximamente se agregarán parciales resueltos de 2do Parcial.",
+    "Finales":     "Próximamente se agregarán finales resueltos.",
+}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _normalizar_nombre(titulo: str, cuatrimestre: str) -> str:
+    """Genera un nombre de archivo snake-kebab a partir del título."""
+    texto = f"{titulo} {cuatrimestre}" if cuatrimestre else titulo
+    nfkd  = unicodedata.normalize("NFKD", texto)
+    ascii_ = "".join(c for c in nfkd if not unicodedata.combining(c))
+    s = ascii_.lower()
+    s = re.sub(r"[°º]", "", s)
+    s = re.sub(r"[—–]", "-", s)
+    s = re.sub(r"[^a-z0-9\-]", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s + "_resuelto.pdf"
+
+
+def _pdf_id(filename: str) -> str:
+    """ID corto para el viewer JS (sin sufijo _resuelto.pdf)."""
+    base = filename.replace("_resuelto.pdf", "")
+    return re.sub(r"-+", "-", base).strip("-")
+
+
+def _escape_js(s: str) -> str:
+    """Escapa comillas simples para usar en atributo onclick."""
+    return s.replace("'", "\\'")
+
+
+def _card_html(tab_id: str, titulo_completo: str, pdf_filename: str) -> str:
+    pdf_id  = _pdf_id(pdf_filename)
+    pdf_url = f"/docs/{pdf_filename}"
+    titulo_js = _escape_js(titulo_completo)
+    return (
+        f'        <div class="pr-card">\n'
+        f'          <div class="pr-card-title">{titulo_completo}</div>\n'
+        f'          <div class="pr-card-sub">Resuelto con soluciones detalladas</div>\n'
+        f'          <div class="pr-card-btns">\n'
+        f"            <button class=\"btn btn-p btn-sm\" onclick=\"toggleParcViewer('{tab_id}','{pdf_id}','{titulo_js}','{pdf_url}',this)\">👁 Ver PDF</button>\n"
+        f'            <a href="{pdf_url}" target="_blank" class="btn btn-g btn-sm" style="text-decoration:none;">📄 Descargar</a>\n'
+        f'          </div>\n'
+        f'        </div>'
+    )
+
+
+def _viewer_html(tab_id: str) -> str:
+    return (
+        f'      <div class="pr-viewer" id="pr-viewer-{tab_id}">\n'
+        f'        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">\n'
+        f'          <span style="font-size:13px;font-weight:700;color:var(--text);" id="pr-viewer-{tab_id}-title"></span>\n'
+        f"          <button class=\"btn btn-g btn-sm\" onclick=\"closeParcViewer('{tab_id}')\">✕ Cerrar</button>\n"
+        f'        </div>\n'
+        f'        <iframe id="pr-viewer-{tab_id}-iframe" src="" width="100%" height="850px"\n'
+        f'          style="border:1px solid var(--border);border-radius:8px;background:var(--bg2);"></iframe>\n'
+        f'      </div>'
+    )
+
+
+# ── Lógica de inserción en index.html ─────────────────────────────────────────
+
+def _insertar_en_grid(html: str, tab_id: str, card: str) -> str:
+    """Inserta una tarjeta dentro del pr-card-grid existente."""
+    # Marca: la línea justo antes del cierre del grid (antes del pr-viewer)
+    pattern = re.compile(
+        r'(id="prcontent-' + tab_id + r'".*?<div class="pr-card-grid">.*?)'
+        r'(\s*</div>\s*\n\s*<div class="pr-viewer")',
+        re.DOTALL,
+    )
+    def replacer(m):
+        return m.group(1) + "\n" + card + "\n      " + m.group(2).lstrip()
+    new_html, n = pattern.subn(replacer, html)
+    if n == 0:
+        raise ValueError(f"No se encontró el pr-card-grid para tab '{tab_id}'")
+    return new_html
+
+
+def _reemplazar_placeholder(html: str, tab_id: str, solapa: str, card: str) -> str:
+    """Reemplaza el div placeholder con card-grid + viewer."""
+    placeholder_text = re.escape(PLACEHOLDER[solapa])
+    pattern = re.compile(
+        r'(<div id="prcontent-' + tab_id + r'"[^>]*>)\s*'
+        r'<div[^>]*>' + placeholder_text + r'</div>\s*'
+        r'(</div>)',
+        re.DOTALL,
+    )
+    viewer = _viewer_html(tab_id)
+    replacement = (
+        r'\1\n'
+        '      <div class="pr-card-grid">\n'
+        + card + '\n'
+        '      </div>\n'
+        + viewer + '\n'
+        r'    \2'
+    )
+    new_html, n = pattern.subn(replacement, html)
+    if n == 0:
+        raise ValueError(
+            f"No se encontró el placeholder para tab '{solapa}'. "
+            f"¿Ya fue reemplazado? Agregá la tarjeta manualmente o revisá index.html."
+        )
+    return new_html
+
+
+def actualizar_index_html(titulo_completo: str, solapa: str, pdf_filename: str,
+                          verbose: bool = True) -> None:
+    tab_id = TAB_IDS[solapa]
+    html   = INDEX_HTML.read_text(encoding="utf-8")
+    card   = _card_html(tab_id, titulo_completo, pdf_filename)
+
+    # Buscar el contenido del tab para determinar si ya tiene grid o solo placeholder
+    content_marker = f'id="prcontent-{tab_id}"'
+    pos = html.find(content_marker)
+    if pos == -1:
+        raise ValueError(f"No se encontró '{content_marker}' en index.html")
+
+    # Buscar la sección del tab (hasta el próximo prcontent o fin)
+    next_tab = html.find('id="prcontent-', pos + len(content_marker))
+    section  = html[pos: next_tab if next_tab != -1 else pos + 8000]
+
+    if '<div class="pr-card-grid">' in section:
+        html = _insertar_en_grid(html, tab_id, card)
+        if verbose:
+            print(f"  ✓ Tarjeta insertada en grid existente de '{solapa}'")
+    else:
+        html = _reemplazar_placeholder(html, tab_id, solapa, card)
+        if verbose:
+            print(f"  ✓ Placeholder reemplazado con grid y tarjeta en '{solapa}'")
+
+    INDEX_HTML.write_text(html, encoding="utf-8")
+
+
+# ── Función principal ─────────────────────────────────────────────────────────
+
+def run(
+    titulo:       str,
+    cuatrimestre: str,
+    solapa:       str,
+    ruta_pdf:     str,
+    verbose:      bool = True,
+) -> str:
+    ruta = Path(ruta_pdf.strip('"'))
+    if not ruta.exists():
+        raise FileNotFoundError(f"Archivo no encontrado: {ruta_pdf}")
+    if ruta.suffix.lower() != ".pdf":
+        raise ValueError("El archivo debe ser un PDF (.pdf)")
+    if solapa not in SOLAPAS:
+        raise ValueError(f"Solapa inválida '{solapa}'. Opciones: {SOLAPAS}")
+
+    titulo_completo = f"{titulo} — {cuatrimestre}" if cuatrimestre.strip() else titulo
+    pdf_filename    = _normalizar_nombre(titulo, cuatrimestre)
+    dest            = DOCS_DIR / pdf_filename
+
+    if verbose:
+        print(f"\n  PDF origen:  {ruta}")
+        print(f"  Destino:     {dest}")
+        print(f"  Solapa:      {solapa}")
+        print(f"  Título:      {titulo_completo}")
+
+    # 1. Copiar PDF
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ruta, dest)
+    if verbose:
+        print("  ✓ PDF copiado")
+
+    # 2. Actualizar index.html
+    actualizar_index_html(titulo_completo, solapa, pdf_filename, verbose)
+
+    # 3. git add + commit + push
+    rel_pdf   = f"public/docs/{pdf_filename}"
+    rel_index = "public/index.html"
+    git = lambda *args: ["git", "-C", str(REPO_ROOT), *args]
+
+    cmds = [
+        (git("add", rel_pdf, rel_index),   "add"),
+        (git("commit", "-m", f"feat: agregar PDF resuelto — {titulo_completo[:70]}"),
+         "commit"),
+        (git("push", "origin", "main"),    "push"),
+    ]
+    for cmd, label in cmds:
+        if verbose:
+            print(f"  $ git {label}...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Error en 'git {label}':\n{result.stderr.strip()}"
+            )
+        if verbose and result.stdout.strip():
+            print(f"    {result.stdout.strip()}")
+
+    msg = f"✅ Publicado: {titulo_completo} → {pdf_filename}"
+    if verbose:
+        print(f"\n  {msg}")
+    return msg
+
+
+# ── Modo interactivo ──────────────────────────────────────────────────────────
+
+def _pedir(prompt: str, opciones: list = None) -> str:
+    while True:
+        val = input(f"  {prompt}: ").strip()
+        if not val:
+            print("    Campo requerido.")
+            continue
+        if opciones and val not in opciones:
+            print(f"    Opciones válidas: {opciones}")
+            continue
+        return val
+
+
+def main():
+    print()
+    print("  ══════════════════════════════════════")
+    print("    Subir PDF resuelto — QuímicaCBC")
+    print("  ══════════════════════════════════════")
+
+    titulo       = _pedir("Título del examen  (ej: 1er Parcial Di Risio)")
+    cuatrimestre = _pedir("Cuatrimestre / año (ej: 1C 2025)")
+
+    print()
+    print("  ¿A qué solapa va?")
+    for i, s in enumerate(SOLAPAS, 1):
+        print(f"    {i}. {s}")
+    choice = _pedir("Elegí (1/2/3)", opciones=["1", "2", "3"])
+    solapa = SOLAPAS[int(choice) - 1]
+
+    ruta_pdf = _pedir("\n  Ruta del archivo PDF")
+
+    print()
+    run(titulo=titulo, cuatrimestre=cuatrimestre, solapa=solapa, ruta_pdf=ruta_pdf)
+
+
+if __name__ == "__main__":
+    main()
