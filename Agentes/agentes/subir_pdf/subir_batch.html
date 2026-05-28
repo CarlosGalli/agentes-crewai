@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batch Upload — QuímicaCBC</title>
+<style>
+  :root {
+    --purple: #534AB7; --purple-lt: #EEEDFE; --green: #1D9E75;
+    --teal: #0F6E56;   --red: #E24B4A;
+    --dark: #2C2C2A;   --gray: #888780;   --gray-lt: #F1EFE8;
+    --bg: #F8F8F6;     --white: #FFFFFF;  --border: #D9D8D2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg);
+         color: var(--dark); min-height: 100vh; }
+
+  /* topbar */
+  #topbar { background: var(--purple); height: 52px; display: flex; align-items: center;
+            padding: 0 24px; gap: 12px; }
+  .logo { color: #fff; font-weight: 700; font-size: 17px; letter-spacing: .5px; }
+  .sub  { color: #CECBF6; font-size: 12px; }
+  #server-inp { font-size: 12px; padding: 4px 9px; border: 1px solid rgba(255,255,255,.25);
+                border-radius: 5px; font-family: monospace; width: 210px;
+                background: rgba(255,255,255,.1); color: #fff; outline: none; }
+  #server-inp:focus { border-color: rgba(255,255,255,.6); }
+
+  /* layout */
+  #main { max-width: 1120px; margin: 28px auto; padding: 0 20px;
+          display: flex; flex-direction: column; gap: 20px; }
+
+  /* card */
+  .card { background: var(--white); border: 1px solid var(--border);
+          border-radius: 10px; padding: 22px 26px; }
+  .card-title { font-size: 14px; font-weight: 700; color: var(--purple); margin-bottom: 16px; }
+
+  /* table */
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase;
+       letter-spacing: .6px; padding: 0 8px 10px; text-align: left;
+       border-bottom: 2px solid var(--border); }
+  td { padding: 9px 8px; vertical-align: middle; border-bottom: 1px solid var(--border); }
+  #tbody tr:last-child td { border-bottom: none; }
+  .col-n      { width: 30px; color: var(--gray); font-size: 12px; text-align: center; }
+  .col-file   { width: 155px; }
+  .col-title  { min-width: 190px; }
+  .col-cuatri { width: 115px; }
+  .col-solapa { width: 138px; }
+  .col-status { width: 125px; }
+  .col-del    { width: 38px; text-align: center; }
+
+  /* inputs */
+  input[type="text"], select {
+    width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; font-family: inherit; background: var(--bg); color: var(--dark); outline: none;
+  }
+  input[type="text"]:focus, select:focus { border-color: var(--purple); }
+  input:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* file cell */
+  .btn-file { display: block; padding: 5px 11px; font-size: 12px; background: var(--gray-lt);
+              border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+              color: var(--dark); white-space: nowrap; font-family: inherit; }
+  .btn-file:hover:not(:disabled) { background: var(--border); }
+  .btn-file:disabled { opacity: .45; cursor: not-allowed; }
+  .filename { font-size: 11px; color: var(--gray); margin-top: 3px;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 148px; }
+
+  /* status badges */
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+            font-weight: 600; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+  .s-pendiente { background: var(--gray-lt);  color: var(--gray); }
+  .s-subiendo  { background: #EEF0FE;         color: var(--purple); }
+  .s-listo     { background: #EAF3DE;         color: var(--teal); }
+  .s-error     { background: #FEE8E8;         color: var(--red); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid currentColor;
+          border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+
+  /* buttons */
+  .btn { padding: 8px 18px; border: none; border-radius: 7px; font-size: 13px; font-weight: 700;
+         cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+         transition: background .15s; font-family: inherit; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-purple { background: var(--purple); color: #fff; }
+  .btn-purple:hover:not(:disabled) { background: #3f38a0; }
+  .btn-green  { background: var(--green); color: #fff; font-size: 15px; padding: 11px 28px; }
+  .btn-green:hover:not(:disabled) { background: var(--teal); }
+  .btn-del    { background: none; border: 1px solid var(--border); color: var(--gray);
+                border-radius: 6px; padding: 4px 9px; font-size: 13px; cursor: pointer;
+                line-height: 1; }
+  .btn-del:hover:not(:disabled) { background: #fee8e8; border-color: var(--red); color: var(--red); }
+  .btn-del:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* actions bar */
+  #actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  #run-summary { font-size: 13px; color: var(--gray); }
+
+  /* log */
+  #log-wrap { background: #1E1E2E; border-radius: 10px; padding: 14px 18px;
+              font-family: Consolas, 'Courier New', monospace; font-size: 12.5px;
+              color: #CDD6F4; min-height: 110px; max-height: 280px;
+              overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  .l-ok   { color: #A6E3A1; }
+  .l-err  { color: #F38BA8; }
+  .l-info { color: #89B4FA; }
+  .l-dim  { color: #6C7086; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span class="logo">AGENTES</span>
+  <span class="sub">Subir PDFs en batch — QuímicaCBC</span>
+  <span style="flex:1"></span>
+  <label style="color:#CECBF6;font-size:11px;display:flex;align-items:center;gap:7px;">
+    Servidor
+    <input id="server-inp" type="text" value="http://localhost:7070">
+  </label>
+</div>
+
+<div id="main">
+
+  <div class="card">
+    <div class="card-title">PDFs a subir</div>
+    <table>
+      <thead>
+        <tr>
+          <th class="col-n">#</th>
+          <th class="col-file">Archivo</th>
+          <th class="col-title">Título</th>
+          <th class="col-cuatri">Cuatrimestre</th>
+          <th class="col-solapa">Solapa</th>
+          <th class="col-status">Estado</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div style="margin-top:14px">
+      <button class="btn btn-purple" id="btn-agregar" onclick="agregarFila()">+ Agregar PDF</button>
+    </div>
+  </div>
+
+  <div id="actions">
+    <button class="btn btn-green" id="btn-subir" onclick="subirTodo()">▶ Subir todo</button>
+    <span id="run-summary"></span>
+  </div>
+
+  <div id="log-wrap"><span class="l-dim">Los logs aparecerán aquí…</span></div>
+
+</div>
+
+<script>
+const SOLAPAS = ["1er Parcial", "2do Parcial", "Finales"];
+let _rowId = 0;
+let _corriendo = false;
+// File objects keyed by rowId
+const _files = {};
+
+function serverBase() {
+  return document.getElementById('server-inp').value.trim().replace(/\/$/, '');
+}
+
+// ── Tabla ─────────────────────────────────────────────────────────────────────
+
+function agregarFila() {
+  if (_corriendo) return;
+  const id   = ++_rowId;
+  const tbody = document.getElementById('tbody');
+  const tr   = document.createElement('tr');
+  tr.id = `row-${id}`;
+
+  const solOpts = SOLAPAS.map(s => `<option>${s}</option>`).join('');
+
+  tr.innerHTML = `
+    <td class="col-n" id="num-${id}"></td>
+    <td class="col-file">
+      <input type="file" accept=".pdf" id="file-${id}" style="display:none"
+             onchange="onFileChange(${id},this)">
+      <button class="btn-file" id="filebtn-${id}"
+              onclick="document.getElementById('file-${id}').click()">Elegir PDF</button>
+      <div class="filename" id="fname-${id}">—</div>
+    </td>
+    <td class="col-title">
+      <input type="text" id="titulo-${id}" placeholder="Título del examen">
+    </td>
+    <td class="col-cuatri">
+      <input type="text" id="cuatri-${id}" placeholder="ej: 1C 2025">
+    </td>
+    <td class="col-solapa">
+      <select id="solapa-${id}">${solOpts}</select>
+    </td>
+    <td class="col-status">
+      <span class="status s-pendiente" id="status-${id}">● Pendiente</span>
+    </td>
+    <td class="col-del">
+      <button class="btn-del" id="delbtn-${id}" onclick="eliminarFila(${id})" title="Eliminar">✕</button>
+    </td>`;
+
+  tbody.appendChild(tr);
+  reindexar();
+  document.getElementById(`titulo-${id}`).focus();
+}
+
+function eliminarFila(id) {
+  if (_corriendo) return;
+  const tr = document.getElementById(`row-${id}`);
+  if (tr) tr.remove();
+  delete _files[id];
+  reindexar();
+}
+
+function reindexar() {
+  document.querySelectorAll('#tbody tr').forEach((tr, i) => {
+    const id = tr.id.replace('row-', '');
+    document.getElementById(`num-${id}`).textContent = i + 1;
+  });
+}
+
+function onFileChange(id, inp) {
+  const f = inp.files[0];
+  if (!f) return;
+  _files[id] = f;
+  document.getElementById(`fname-${id}`).textContent = f.name;
+}
+
+// ── Estado visual ─────────────────────────────────────────────────────────────
+
+function setStatus(id, tipo, texto) {
+  const el = document.getElementById(`status-${id}`);
+  el.className = `status s-${tipo}`;
+  if (tipo === 'subiendo') {
+    el.innerHTML = `<span class="spin"></span> ${texto}`;
+  } else {
+    const ico = { pendiente: '●', listo: '✓', error: '✗' }[tipo] || '';
+    el.textContent = `${ico} ${texto}`;
+  }
+}
+
+function setFilaDisabled(id, dis) {
+  ['titulo', 'cuatri', 'solapa'].forEach(f => {
+    const el = document.getElementById(`${f}-${id}`);
+    if (el) el.disabled = dis;
+  });
+  const fb = document.getElementById(`filebtn-${id}`);
+  const db = document.getElementById(`delbtn-${id}`);
+  if (fb) fb.disabled = dis;
+  if (db) db.disabled = dis;
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+
+function logMsg(texto, tipo = 'info') {
+  const wrap = document.getElementById('log-wrap');
+  const span = document.createElement('span');
+  span.className = `l-${tipo}`;
+  span.textContent = texto;
+  wrap.appendChild(span);
+  wrap.appendChild(document.createTextNode('\n'));
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function logClear() {
+  document.getElementById('log-wrap').innerHTML = '';
+}
+
+// ── Subir ─────────────────────────────────────────────────────────────────────
+
+async function subirTodo() {
+  if (_corriendo) return;
+
+  const filas = [...document.querySelectorAll('#tbody tr')];
+  if (!filas.length) { alert('Agregá al menos un PDF.'); return; }
+
+  // Validar todo antes de empezar
+  for (const tr of filas) {
+    const id = tr.id.replace('row-', '');
+    if (!_files[id]) {
+      alert(`Fila ${document.getElementById(`num-${id}`).textContent}: seleccioná un archivo PDF.`);
+      return;
+    }
+    if (!document.getElementById(`titulo-${id}`).value.trim()) {
+      alert(`Fila ${document.getElementById(`num-${id}`).textContent}: ingresá el título.`);
+      return;
+    }
+  }
+
+  _corriendo = true;
+  logClear();
+  document.getElementById('btn-subir').disabled   = true;
+  document.getElementById('btn-agregar').disabled = true;
+  document.getElementById('run-summary').textContent = '';
+
+  let ok = 0, errores = 0;
+
+  for (const tr of filas) {
+    const id     = tr.id.replace('row-', '');
+    const titulo = document.getElementById(`titulo-${id}`).value.trim();
+    const cuatri = document.getElementById(`cuatri-${id}`).value.trim();
+    const solapa = document.getElementById(`solapa-${id}`).value;
+    const file   = _files[id];
+
+    setFilaDisabled(id, true);
+    setStatus(id, 'subiendo', 'Subiendo…');
+    logMsg(`\n── ${titulo}  [${solapa}] ──`, 'info');
+
+    try {
+      // 1. Upload al servidor
+      const fd = new FormData();
+      fd.append('archivo', file);
+      const upRes = await fetch(`${serverBase()}/api/upload-temp`, { method: 'POST', body: fd });
+      if (!upRes.ok) throw new Error(`Upload HTTP ${upRes.status}`);
+      const upData = await upRes.json();
+      if (upData.error) throw new Error(upData.error);
+      logMsg(`  ✓ Archivo recibido: ${upData.nombre}`, 'ok');
+
+      setStatus(id, 'subiendo', 'Procesando…');
+
+      // 2. Ejecutar agente subir_pdf
+      const execRes = await fetch(`${serverBase()}/api/ejecutar`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          agente: 'subir_pdf',
+          params: { titulo, cuatrimestre: cuatri, solapa, ruta_pdf: upData.path }
+        })
+      });
+      const execData = await execRes.json();
+      if (execData.error) throw new Error(execData.error);
+
+      // 3. Escuchar stream SSE
+      const fin = await escucharStream(execData.job_id, id);
+      if (fin.status === 'ok') {
+        setStatus(id, 'listo', 'Publicado');
+        logMsg(`  ✅ ${fin.resultado || 'Completado'}`, 'ok');
+        ok++;
+      } else {
+        throw new Error(fin.resultado || 'Error desconocido');
+      }
+
+    } catch (err) {
+      setStatus(id, 'error', 'Error');
+      logMsg(`  ✗ ${err.message}`, 'err');
+      setFilaDisabled(id, false);
+      errores++;
+    }
+  }
+
+  _corriendo = false;
+  document.getElementById('btn-subir').disabled   = false;
+  document.getElementById('btn-agregar').disabled = false;
+
+  const resumen = `${ok} publicado(s)${errores ? `, ${errores} error(es)` : ' — todo OK'}`;
+  document.getElementById('run-summary').textContent = resumen;
+  logMsg(`\n══ Finalizado: ${resumen} ══`, errores ? 'err' : 'ok');
+}
+
+function escucharStream(jobId) {
+  return new Promise(resolve => {
+    const es = new EventSource(`${serverBase()}/api/stream/${jobId}`);
+    es.onmessage = e => {
+      const msg = JSON.parse(e.data);
+      if (msg.tipo === 'ping') return;
+      if (msg.tipo === 'log') {
+        const t = msg.texto.includes('✓') || msg.texto.includes('✅') ? 'ok'
+                : msg.texto.includes('Error') || msg.texto.includes('error') ? 'err' : 'dim';
+        logMsg(`  ${msg.texto}`, t);
+      }
+      if (msg.tipo === 'fin') { es.close(); resolve(msg); }
+    };
+    es.onerror = () => {
+      es.close();
+      resolve({ status: 'error', resultado: 'Conexión perdida con el servidor' });
+    };
+  });
+}
+
+// Arrancar con una fila
+agregarFila();
+</script>
+</body>
+</html>

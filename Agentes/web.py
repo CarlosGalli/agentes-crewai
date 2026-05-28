@@ -617,6 +617,11 @@ init();
 def index():
     return HTML
 
+@app.route("/batch")
+def batch():
+    p = Path(__file__).parent / "agentes" / "subir_pdf" / "subir_batch.html"
+    return p.read_text(encoding="utf-8")
+
 
 # ── arranque ──────────────────────────────────────────────────────────────────
 def main():
