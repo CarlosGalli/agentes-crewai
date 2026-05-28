@@ -16,7 +16,6 @@ Uso programático:
 import re
 import shutil
 import subprocess
-import unicodedata
 from pathlib import Path
 
 # ── Rutas fijas del proyecto ──────────────────────────────────────────────────
@@ -38,17 +37,18 @@ PLACEHOLDER = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _normalizar_nombre(titulo: str, cuatrimestre: str) -> str:
-    """Genera un nombre de archivo snake-kebab a partir del título."""
-    texto = f"{titulo} {cuatrimestre}" if cuatrimestre else titulo
-    nfkd  = unicodedata.normalize("NFKD", texto)
-    ascii_ = "".join(c for c in nfkd if not unicodedata.combining(c))
-    s = ascii_.lower()
-    s = re.sub(r"[°º]", "", s)
-    s = re.sub(r"[—–]", "-", s)
-    s = re.sub(r"[^a-z0-9\-]", "-", s)
-    s = re.sub(r"-+", "-", s).strip("-")
-    return s + "_resuelto.pdf"
+def _nombre_salida(ruta_pdf: str) -> str:
+    """Deriva el nombre de salida preservando el nombre original del archivo.
+
+    Ejemplos:
+        2024_Final_B.pdf        → 2024_Final_B_resuelto.pdf
+        parcial_1C_2025.pdf     → parcial_1C_2025_resuelto.pdf
+        algo_resuelto.pdf       → algo_resuelto.pdf  (ya tiene el sufijo)
+    """
+    stem = Path(ruta_pdf).stem
+    if stem.endswith("_resuelto"):
+        return stem + ".pdf"
+    return stem + "_resuelto.pdf"
 
 
 def _pdf_id(filename: str) -> str:
@@ -182,7 +182,7 @@ def run(
         raise ValueError(f"Solapa inválida '{solapa}'. Opciones: {SOLAPAS}")
 
     titulo_completo = f"{titulo} — {cuatrimestre}" if cuatrimestre.strip() else titulo
-    pdf_filename    = _normalizar_nombre(titulo, cuatrimestre)
+    pdf_filename    = _nombre_salida(ruta_pdf)
     dest            = DOCS_DIR / pdf_filename
 
     if verbose:
