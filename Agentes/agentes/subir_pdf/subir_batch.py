@@ -166,11 +166,36 @@ def _cargar_item(n: int) -> dict | None:
             "solapa": solapa, "ruta_pdf": ruta_pdf}
 
 
+def _cargar_csv(ruta_csv: str) -> list[dict]:
+    import csv
+    with open(ruta_csv, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
 def main():
+    import sys
+
     print()
     print("  ══════════════════════════════════════════")
     print("    Subir PDFs en batch — QuímicaCBC")
     print("  ══════════════════════════════════════════")
+
+    # Modo CSV: python subir_batch.py archivo.csv
+    if len(sys.argv) > 1:
+        ruta_csv = sys.argv[1]
+        print(f"  Leyendo CSV: {ruta_csv}\n")
+        items = _cargar_csv(ruta_csv)
+        if not items:
+            print("  El CSV está vacío. Saliendo.")
+            return
+        print(f"  Se procesarán {len(items)} PDF(s):")
+        for i, item in enumerate(items, 1):
+            cuatri = f" — {item.get('cuatrimestre', '')}" if item.get("cuatrimestre") else ""
+            print(f"    {i}. {item['titulo']}{cuatri}  [{item['solapa']}]")
+        run_batch(items)
+        return
+
+    # Modo interactivo
     print("  Ingresá los PDFs uno a uno.")
     print("  Dejá el título vacío para terminar y subir.\n")
 

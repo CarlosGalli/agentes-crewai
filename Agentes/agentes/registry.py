@@ -82,6 +82,134 @@ AGENTES = {
         ],
     },
 
+    "matematica_cbc": {
+        "nombre":      "Matemática CBC",
+        "descripcion": "Genera ejercicios resueltos, resúmenes y guías para las 6 unidades del CBC",
+        "categoria":   "Educación",
+        "modulo":      "agentes.matematica_cbc.matematica_cbc",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":    "tarea",
+                "tipo":      "texto",
+                "label":     "Tarea",
+                "requerido": True,
+            },
+            {
+                "nombre":    "unidad",
+                "tipo":      "texto",
+                "label":     "Unidad (opcional)",
+                "requerido": False,
+            },
+        ],
+    },
+
+    "quimica_cbc": {
+        "nombre":      "Química CBC",
+        "descripcion": "Genera ejercicios resueltos y resúmenes para Química CBC-UBA",
+        "categoria":   "Educación",
+        "modulo":      "agentes.quimica_cbc.quimica_cbc",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":    "tarea",
+                "tipo":      "texto",
+                "label":     "Tarea",
+                "requerido": True,
+            },
+            {
+                "nombre":    "unidad",
+                "tipo":      "texto",
+                "label":     "Unidad (opcional)",
+                "requerido": False,
+            },
+        ],
+    },
+
+    "apsa": {
+        "nombre":      "APSA",
+        "descripcion": "Genera documentos técnicos para ACUALITE PROYECTOS S.A.",
+        "categoria":   "APSA",
+        "modulo":      "agentes.apsa.apsa",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":    "tarea",
+                "tipo":      "texto",
+                "label":     "Tarea",
+                "requerido": True,
+            },
+            {
+                "nombre":    "tipo_documento",
+                "tipo":      "texto",
+                "label":     "Tipo de documento (opcional)",
+                "requerido": False,
+            },
+            {
+                "nombre":    "cliente",
+                "tipo":      "texto",
+                "label":     "Cliente (opcional)",
+                "requerido": False,
+            },
+        ],
+    },
+
+    "escuelas": {
+        "nombre":      "Escuelas",
+        "descripcion": "Genera planificaciones y material curricular DGCyE",
+        "categoria":   "Escuelas",
+        "modulo":      "agentes.escuelas.escuelas",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":    "tarea",
+                "tipo":      "texto",
+                "label":     "Tarea",
+                "requerido": True,
+            },
+            {
+                "nombre":    "materia",
+                "tipo":      "texto",
+                "label":     "Materia (opcional)",
+                "requerido": False,
+            },
+            {
+                "nombre":    "escuela",
+                "tipo":      "texto",
+                "label":     "Escuela (opcional)",
+                "requerido": False,
+            },
+            {
+                "nombre":    "anio_curso",
+                "tipo":      "texto",
+                "label":     "Año / Curso (opcional)",
+                "requerido": False,
+            },
+        ],
+    },
+
+    "video_derbuk": {
+        "nombre":      "Video DERBUK",
+        "descripcion": "Genera pantallas pedagógicas para videos de Química CBC en YouTube",
+        "categoria":   "YouTube",
+        "modulo":      "agentes.video_derbuk.video_derbuk",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":    "ejercicio",
+                "tipo":      "texto",
+                "label":     "Ejercicio",
+                "requerido": True,
+            },
+            {
+                "nombre":    "unidad",
+                "tipo":      "texto",
+                "label":     "Unidad (opcional)",
+                "requerido": False,
+            },
+        ],
+    },
+
     # ── Plantilla para próximos agentes ────────────────────────────────────
     # "nuevo_agente": {
     #     "nombre":      "Nombre visible",

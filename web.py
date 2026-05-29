@@ -17,17 +17,12 @@ import subprocess
 import webbrowser
 import argparse
 import queue
-import tempfile
-import shutil
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response
 from agentes.registry import AGENTES, CATEGORIAS
 
 app = Flask(__name__, static_folder=None)
@@ -102,9 +97,6 @@ def api_ejecutar():
         orig = sys.stdout
         sys.stdout = LogCapture()
         try:
-            import os
-            if not os.environ.get('ANTHROPIC_API_KEY'):
-                raise ValueError("Falta ANTHROPIC_API_KEY. Configurala en el archivo .env")
             modulo  = importlib.import_module(ag["modulo"])
             funcion = getattr(modulo, ag["funcion"])
             sig     = inspect.signature(funcion)
@@ -195,25 +187,6 @@ def api_elegir_archivo():
         return jsonify({"path": path or ""})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/upload-temp", methods=["POST"])
-def api_upload_temp():
-    """Recibe un archivo subido desde el browser y lo guarda en un directorio temporal.
-    Devuelve la ruta absoluta para pasarla al agente."""
-    if "archivo" not in request.files:
-        return jsonify({"error": "No se recibió ningún archivo"}), 400
-    f = request.files["archivo"]
-    if not f.filename:
-        return jsonify({"error": "Nombre de archivo vacío"}), 400
-
-    suffix = Path(f.filename).suffix.lower()
-    tmp    = tempfile.NamedTemporaryFile(delete=False, suffix=suffix,
-                                         prefix="agente_upload_")
-    tmp_path = tmp.name
-    tmp.close()
-    f.save(tmp_path)
-    return jsonify({"path": tmp_path, "nombre": f.filename})
 
 
 # ── HTML principal ────────────────────────────────────────────────────────────
@@ -313,35 +286,35 @@ HTML = r"""<!DOCTYPE html>
                padding: 5px 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
   #btn-abrir:hover { background: var(--teal); }
 
-  /* home screen */
-  #home { display: flex; flex-direction: column; gap: 32px; }
-  .home-section-title { font-size: 11px; font-weight: 700; color: var(--gray);
-                        text-transform: uppercase; letter-spacing: .8px; margin-bottom: 12px; }
-  .home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-  .home-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px;
-               padding: 18px 20px; display: flex; flex-direction: column; gap: 7px;
-               transition: border-color .15s, box-shadow .15s; }
-  .home-card:hover { border-color: var(--purple); box-shadow: 0 2px 14px rgba(83,74,183,.1); }
-  .home-card-cat  { display: inline-block; font-size: 10px; font-weight: 700;
-                    background: var(--purple-lt); color: var(--purple);
-                    border-radius: 20px; padding: 2px 9px; width: fit-content; }
-  .home-card-name { font-size: 15px; font-weight: 700; color: var(--dark); line-height: 1.3; }
-  .home-card-desc { font-size: 12px; color: var(--gray); line-height: 1.55; flex: 1; }
-  .btn-usar { margin-top: 8px; padding: 7px 18px; background: var(--purple); color: #fff;
-              border: none; border-radius: 7px; font-size: 13px; font-weight: 700;
-              cursor: pointer; transition: background .15s; font-family: inherit;
-              align-self: flex-start; }
-  .btn-usar:hover { background: #3f38a0; }
+  /* empty state */
+  #empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+           flex: 1; color: var(--gray); gap: 8px; }
+  #empty .ico { font-size: 52px; opacity: .3; }
+  #empty p    { font-size: 15px; }
 
-  /* drag & drop zone */
-  .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 22px 16px;
-              text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
-              background: var(--bg); color: var(--gray); font-size: 13px; user-select: none; }
-  .dropzone:hover, .dropzone.over { border-color: var(--purple); background: var(--purple-lt); color: var(--purple); }
-  .dropzone.ready { border-color: var(--green); background: #EAF3DE; color: var(--teal); }
-  .dropzone .dz-icon { font-size: 20px; margin-bottom: 6px; display: block; }
-  .dropzone .dz-label { font-size: 13px; }
-  .dropzone .dz-preview { font-size: 13px; font-weight: 600; }
+  /* panel parcial */
+  #panel-parcial { display:none; flex-direction:column; gap:16px; }
+  .apikey-row-local { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .apikey-row-local label { font-size:13px; color:var(--gray); white-space:nowrap; }
+  .apikey-row-local input { flex:1; padding:7px 10px; border:1px solid var(--border); border-radius:6px;
+                             background:var(--bg); font-size:13px; font-family:monospace; }
+  .ej-card-local { background:var(--white); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .ej-header-local { display:flex; align-items:center; gap:10px; padding:9px 14px;
+                      background:var(--gray-lt); cursor:pointer; border-bottom:1px solid var(--border); }
+  .ej-num-local { font-size:11px; font-weight:700; color:var(--purple); background:var(--purple-lt);
+                  border-radius:20px; padding:2px 9px; }
+  .ej-title-local { font-size:14px; font-weight:600; flex:1; }
+  .ej-body-local { padding:14px; font-size:12.5px; font-family:'Consolas',monospace; white-space:pre-wrap;
+                   display:none; max-height:350px; overflow-y:auto; line-height:1.6; }
+  .ej-body-local.open { display:block; }
+  .streaming-cur::after { content:'▋'; animation:blink .7s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .btn-run-parcial { background:var(--green); color:#fff; border:none; border-radius:8px;
+                     padding:10px 24px; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn-run-parcial:hover { background:var(--teal); }
+  .btn-run-parcial:disabled { background:var(--gray); cursor:not-allowed; }
+  .copy-small { padding:3px 9px; border:1px solid var(--border); border-radius:5px; background:none;
+                font-size:11px; cursor:pointer; color:var(--gray); }
 </style>
 </head>
 <body>
@@ -355,7 +328,10 @@ HTML = r"""<!DOCTYPE html>
   <div id="sidebar" id="sidebar"></div>
 
   <div id="main">
-    <div id="home"></div>
+    <div id="empty">
+      <div class="ico">🤖</div>
+      <p>Elegí un agente de la lista</p>
+    </div>
     <div id="agente-card" style="display:none">
       <div id="agente-cat"></div>
       <div id="agente-nombre"></div>
@@ -372,6 +348,22 @@ HTML = r"""<!DOCTYPE html>
       <button id="btn-abrir" onclick="abrirResultado()">Abrir</button>
     </div>
     <div id="log-card" style="display:none"></div>
+
+    <!-- Panel Parcial CBC y Video DERBUK (llaman al proxy local) -->
+    <div id="panel-parcial">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="apikey-row-local" style="flex:1;min-width:260px">
+          <label for="parcial-apikey">🔑 API Key Anthropic</label>
+          <input type="password" id="parcial-apikey" placeholder="sk-ant-..."
+                 oninput="localStorage.setItem('apsa_apikey',this.value)" />
+        </div>
+        <button class="btn-run-parcial" id="btn-parcial" onclick="resolverParcial()">
+          ▶ Resolver ejercicios
+        </button>
+        <span id="parcial-status" style="font-size:13px;color:var(--gray)"></span>
+      </div>
+      <div id="parcial-list" style="display:flex;flex-direction:column;gap:10px"></div>
+    </div>
   </div>
 </div>
 
@@ -386,12 +378,13 @@ async function init() {
   const d = await r.json();
   AGENTES = d.agentes;
   renderSidebar(d.agentes, d.categorias);
-  renderHome(d.agentes, d.categorias);
 }
 
 function renderSidebar(agentes, categorias) {
   const sb = document.getElementById('sidebar');
   sb.innerHTML = '';
+
+  // Agentes del registry
   for (const cat of categorias) {
     const entries = Object.entries(agentes).filter(([,v]) => v.categoria === cat);
     if (!entries.length) continue;
@@ -408,43 +401,32 @@ function renderSidebar(agentes, categorias) {
       sb.appendChild(btn);
     }
   }
-}
 
-function renderHome(agentes, categorias) {
-  const home = document.getElementById('home');
-  home.innerHTML = '';
-  for (const cat of categorias) {
-    const entries = Object.entries(agentes).filter(([, v]) => v.categoria === cat);
-    if (!entries.length) continue;
+  // Sección YouTube (agentes con proxy)
+  const lblYT = document.createElement('div');
+  lblYT.className = 'cat-label';
+  lblYT.textContent = 'YouTube';
+  sb.appendChild(lblYT);
 
-    const section = document.createElement('div');
+  const btnDerbuk = document.createElement('button');
+  btnDerbuk.className = 'ag-btn';
+  btnDerbuk.id = 'btn-derbuk';
+  btnDerbuk.textContent = 'Video DERBUK';
+  btnDerbuk.onclick = () => mostrarParcial('derbuk', btnDerbuk);
+  sb.appendChild(btnDerbuk);
 
-    const title = document.createElement('div');
-    title.className = 'home-section-title';
-    title.textContent = cat;
-    section.appendChild(title);
+  // Sección Parciales
+  const lblP = document.createElement('div');
+  lblP.className = 'cat-label';
+  lblP.textContent = 'Parciales';
+  sb.appendChild(lblP);
 
-    const grid = document.createElement('div');
-    grid.className = 'home-grid';
-
-    for (const [key, ag] of entries) {
-      const card = document.createElement('div');
-      card.className = 'home-card';
-      card.innerHTML = `
-        <div class="home-card-cat">${ag.categoria}</div>
-        <div class="home-card-name">${ag.nombre}</div>
-        <div class="home-card-desc">${ag.descripcion}</div>
-        <button class="btn-usar" data-key="${key}">Usar →</button>`;
-      card.querySelector('.btn-usar').onclick = () => {
-        const sideBtn = document.querySelector(`.ag-btn[data-key="${key}"]`);
-        seleccionar(key, sideBtn);
-      };
-      grid.appendChild(card);
-    }
-
-    section.appendChild(grid);
-    home.appendChild(section);
-  }
+  const btnP = document.createElement('button');
+  btnP.className = 'ag-btn';
+  btnP.id = 'btn-parcial-sidebar';
+  btnP.textContent = '1er Parcial 2024';
+  btnP.onclick = () => mostrarParcial('parcial2024', btnP);
+  sb.appendChild(btnP);
 }
 
 // ── seleccionar agente ────────────────────────────────────────────────────────
@@ -454,7 +436,8 @@ function seleccionar(key, btn) {
   agenteActual = key;
   const ag = AGENTES[key];
 
-  document.getElementById('home').style.display = 'none';
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('panel-parcial').style.display = 'none';
   document.getElementById('agente-card').style.display = 'block';
   document.getElementById('agente-cat').textContent    = ag.categoria;
   document.getElementById('agente-nombre').textContent = ag.nombre;
@@ -488,70 +471,6 @@ function renderParams(params) {
       chk.id = 'param_' + p.nombre;
       chk.checked = p.default !== false;
       row.appendChild(chk);
-
-    } else if (p.tipo === 'opciones') {
-      const sel = document.createElement('select');
-      sel.className = 'param-input';
-      sel.id = 'param_' + p.nombre;
-      for (const op of (p.opciones || [])) {
-        const opt = document.createElement('option');
-        opt.value = op;
-        opt.textContent = op;
-        sel.appendChild(opt);
-      }
-      row.appendChild(sel);
-
-    } else if (p.tipo === 'archivo_upload') {
-      const accept = (p.extensiones || []).join(',');
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:6px;';
-
-      const fileInp = document.createElement('input');
-      fileInp.type = 'file';
-      fileInp.accept = accept;
-      fileInp.id = 'param_' + p.nombre + '_file';
-      fileInp.style.cssText = 'display:none;';
-
-      const hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      hidden.id = 'param_' + p.nombre;
-
-      const zone = document.createElement('div');
-      zone.className = 'dropzone';
-      zone.innerHTML = '<span class="dz-icon">📄</span><div class="dz-label">Arrastrá el PDF acá o hacé clic para seleccionar</div>';
-
-      async function uploadFile(file) {
-        zone.className = 'dropzone';
-        zone.innerHTML = '<span class="dz-icon">⏳</span><div class="dz-preview">Subiendo ' + escHtml(file.name) + '…</div>';
-        const fd = new FormData();
-        fd.append('archivo', file);
-        const r = await fetch('/api/upload-temp', { method: 'POST', body: fd });
-        const d = await r.json();
-        if (d.path) {
-          hidden.value = d.path;
-          zone.className = 'dropzone ready';
-          zone.innerHTML = '<span class="dz-icon">✅</span><div class="dz-preview">' + escHtml(d.nombre) + '</div>';
-        } else {
-          zone.className = 'dropzone';
-          zone.innerHTML = '<span class="dz-icon">❌</span><div class="dz-label">Error al subir — intentá de nuevo</div>';
-        }
-      }
-
-      zone.onclick    = () => fileInp.click();
-      zone.ondragover = (e) => { e.preventDefault(); zone.classList.add('over'); };
-      zone.ondragleave = () => zone.classList.remove('over');
-      zone.ondrop = (e) => {
-        e.preventDefault();
-        zone.classList.remove('over');
-        const file = e.dataTransfer.files[0];
-        if (file) uploadFile(file);
-      };
-      fileInp.onchange = () => { if (fileInp.files[0]) uploadFile(fileInp.files[0]); };
-
-      wrap.appendChild(fileInp);
-      wrap.appendChild(zone);
-      wrap.appendChild(hidden);
-      row.appendChild(wrap);
 
     } else if (p.tipo === 'archivo' || p.tipo === 'archivo_salida') {
       const inp = document.createElement('input');
@@ -603,7 +522,6 @@ async function ejecutar() {
     if (!el) continue;
     if (p.tipo === 'bool') params[p.nombre] = el.checked;
     else params[p.nombre] = el.value || null;
-    // archivo_upload: el hidden input ya tiene la ruta temp, no hace falta nada extra
   }
 
   // UI
@@ -676,20 +594,260 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── panel parcial / video derbuk (proxy local) ────────────────────────────────
+
+const EJERCICIOS_2024 = [
+  { n:1, titulo:"Isoelectrónicos — neutrones de ²⁵R²⁺", enunciado:`Las especies ²⁵R²⁺ y ₁₀X son isoelectrónicas. Indicar el número de neutrones que tiene el ion ²⁵R²⁺.` },
+  { n:2, titulo:"Ion isoelectrónico con 4° gas noble", enunciado:`Cuando un átomo del elemento X pierde 1 electrón, forma un ion isoelectrónico con el cuarto gas noble. ¿Cuál afirmación es la única correcta? (A) X pertenece al grupo 1; (B) La carga del ion es −1; (C) El número másico del isótopo de X que tiene 45 neutrones es 80; (D) La CE de X es [Kr](5s)².` },
+  { n:3, titulo:"Fórmula de oxosal con Cl en oxidación +1", enunciado:`Escribir la fórmula de una oxosal que contenga cloro en estado de oxidación +1.` },
+  { n:4, titulo:"Lewis del HClO — simples, dobles y triples", enunciado:`Indicar para el HClO cuántos enlaces covalentes simples, cuántos dobles y cuántos triples presenta en su estructura de Lewis.` },
+  { n:5, titulo:"Mayores ángulos de enlace (VSEPR) — CS₂", enunciado:`¿Cuál de estas moléculas presenta mayores ángulos de enlace según VSEPR?: (a) CCl₂ con 2 pares libres, (b) NH₂ con 1 par libre, (c) H₂O, (d) CS₂. Justificar.` },
+  { n:6, titulo:"Propiedades intermoleculares del SCl₂", enunciado:`¿Cuál/es de las siguientes propiedades corresponde/n al SCl₂?: (A) fuerzas de London, (B) enlaces de hidrógeno, (C) fuerzas dipolo permanente-dipolo permanente, (D) conduce la corriente en estado sólido.` },
+  { n:7, titulo:"Moles de átomos de O en cafeína — 200 mg", enunciado:`La cafeína es C₈H₁₀N₄O₂ (MM=194 g/mol). Una taza de café tiene 200 mg de cafeína. Calcular los moles de átomos de O ingeridos en una taza. Nₐ=6,02×10²³ mol⁻¹.` },
+  { n:8, titulo:"HF vs HI — afirmaciones correctas", enunciado:`El fluoruro de hidrógeno (HF) y el yoduro de hidrógeno (HI) tienen: a) igual número de moléculas en un mol de sustancia; b) igual % en masa de H; c) distinto número de átomos en un mol; d) igual masa molar. ¿Cuál es correcta?` },
+  { n:9, titulo:"Afirmación incorrecta sobre materia", enunciado:`Seleccionar la afirmación incorrecta: a) La fórmula molecular y empírica de una sustancia pueden ser la misma. b) "Átomo" y "elemento" significan lo mismo. c) Un sistema heterogéneo puede tener un solo componente. d) La densidad y el punto de fusión son propiedades intensivas.` },
+  { n:10, titulo:"Mayor solubilidad en agua", enunciado:`¿Cuál presenta mayor solubilidad en agua?: a) 1-propanol (CH₃CH₂CH₂OH), b) 2-hexanona (CH₃CH₂CH₂CH₂COCH₃), c) butanona (CH₃CH₂COCH₃), d) 1-pentanol (CH₃CH₂CH₂CH₂CH₂OH).` },
+];
+
+const DERBUK_SISTEMA = `Sos un profesor de química del CBC que genera contenido para el canal DERBUK. Aplicás MODELADO COGNITIVO: el resolutor "piensa en voz alta" en cada pantalla. Formato de respuesta: JSON con estructura {"titulo_video":"...","pantallas":[{"numero":1,"titulo":"...","texto_visual":"...","narracion":"..."}]}. Mínimo 8 pantallas. Español rioplatense. Solo JSON, sin explicación adicional.`;
+
+const PARCIAL_SISTEMA = `Sos un profesor especializado en Química CBC-UBA. Resolvés ejercicios paso a paso con: datos identificados, desarrollo con justificación del "¿por qué?" de cada paso, y respuesta final marcada. Español rioplatense. Sé conciso pero completo.`;
+
+let modoPanel = null;
+let parcialTextos = {};
+let parcialEstados = {};
+
+function mostrarParcial(modo, btn) {
+  document.querySelectorAll('.ag-btn').forEach(b => b.classList.remove('act'));
+  btn.classList.add('act');
+  modoPanel = modo;
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('agente-card').style.display = 'none';
+  document.getElementById('log-card').style.display = 'none';
+  document.getElementById('resultado-bar').classList.remove('show');
+
+  const panel = document.getElementById('panel-parcial');
+  panel.style.display = 'flex';
+
+  const apikey = localStorage.getItem('apsa_apikey') || '';
+  document.getElementById('parcial-apikey').value = apikey;
+
+  if (modo === 'parcial2024') {
+    document.getElementById('btn-parcial').textContent = '▶ Resolver los 10 ejercicios';
+    parcialTextos = {};
+    parcialEstados = {};
+    EJERCICIOS_2024.forEach(e => { parcialTextos[e.n] = ''; parcialEstados[e.n] = 'pendiente'; });
+    renderParcialList(EJERCICIOS_2024);
+  } else if (modo === 'derbuk') {
+    document.getElementById('btn-parcial').textContent = '▶ Generar pantallas';
+    document.getElementById('parcial-list').innerHTML = `
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;flex-direction:column;gap:10px">
+        <label style="font-size:13px;color:var(--gray)">Ejercicio a resolver<span style="color:var(--red)">*</span></label>
+        <textarea id="derbuk-enunciado" rows="4" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;background:var(--bg);resize:vertical" placeholder="Ej: ¿Cuántos gramos de NaCl se necesitan para preparar 500 mL de solución 0,5 M?"></textarea>
+        <label style="font-size:13px;color:var(--gray)">Unidad temática (opcional)</label>
+        <input id="derbuk-unidad" type="text" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg)" placeholder="Ej: Unidad 6 — Soluciones" />
+        <div id="derbuk-output" style="display:none;background:#1E1E2E;border-radius:8px;padding:14px;font-family:monospace;font-size:12px;color:#CDD6F4;white-space:pre-wrap;max-height:400px;overflow-y:auto"></div>
+      </div>`;
+  }
+}
+
+function renderParcialList(ejercicios) {
+  const el = document.getElementById('parcial-list');
+  el.innerHTML = ejercicios.map(e => {
+    const st = parcialEstados[e.n] || 'pendiente';
+    const ico = st === 'pendiente' ? '⬜' : st === 'corriendo' ? '🔄' : st === 'listo' ? '✅' : '❌';
+    const bodyClass = 'ej-body-local' + (st === 'listo' || st === 'corriendo' ? ' open' : '') + (st === 'corriendo' ? ' streaming-cur' : '');
+    return `
+      <div class="ej-card-local" id="ejcard${e.n}">
+        <div class="ej-header-local" onclick="toggleEj(${e.n})">
+          <span class="ej-num-local">Ej. ${e.n}</span>
+          <span class="ej-title-local">${e.titulo}</span>
+          <span>${ico}</span>
+          ${st === 'listo' ? `<button class="copy-small" onclick="event.stopPropagation();navigator.clipboard.writeText(parcialTextos[${e.n}])">copiar</button>` : ''}
+        </div>
+        <div class="${bodyClass}" id="ejbody${e.n}">${escHtml(parcialTextos[e.n] || '')}</div>
+      </div>`;
+  }).join('');
+}
+
+function toggleEj(n) {
+  document.getElementById('ejbody' + n)?.classList.toggle('open');
+}
+
+async function resolverParcial() {
+  const key = document.getElementById('parcial-apikey').value.trim();
+  if (!key) { alert('Ingresá tu API key.'); return; }
+  localStorage.setItem('apsa_apikey', key);
+
+  if (modoPanel === 'derbuk') {
+    await resolverDerbuk(key); return;
+  }
+
+  // Parcial 2024
+  const btn = document.getElementById('btn-parcial');
+  btn.disabled = true;
+  for (const ej of EJERCICIOS_2024) {
+    document.getElementById('parcial-status').textContent = `Resolviendo ejercicio ${ej.n}/10...`;
+    parcialEstados[ej.n] = 'corriendo';
+    parcialTextos[ej.n] = '';
+    renderParcialList(EJERCICIOS_2024);
+    try {
+      const resp = await fetch('/api/proxy/anthropic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 1500, stream: true,
+          system: PARCIAL_SISTEMA,
+          messages: [{ role: 'user', content: `Resolvé este ejercicio del 1er Parcial de Química CBC 2024 (Cátedra Di Risio):\n\n${ej.enunciado}` }]
+        })
+      });
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const ev = JSON.parse(data);
+            if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              parcialTextos[ej.n] += ev.delta.text;
+              const box = document.getElementById('ejbody' + ej.n);
+              if (box) { box.textContent = parcialTextos[ej.n]; box.scrollTop = box.scrollHeight; }
+            }
+          } catch(e) {}
+        }
+      }
+      parcialEstados[ej.n] = 'listo';
+    } catch(err) {
+      parcialTextos[ej.n] = 'Error: ' + err.message;
+      parcialEstados[ej.n] = 'error';
+    }
+    renderParcialList(EJERCICIOS_2024);
+    const b = document.getElementById('ejbody' + ej.n);
+    if (b) { b.classList.remove('streaming-cur'); b.classList.add('open'); b.textContent = parcialTextos[ej.n]; }
+  }
+  document.getElementById('parcial-status').textContent = '✓ Todos resueltos';
+  btn.disabled = false;
+}
+
+async function resolverDerbuk(key) {
+  const enunciado = document.getElementById('derbuk-enunciado')?.value?.trim();
+  const unidad = document.getElementById('derbuk-unidad')?.value?.trim();
+  if (!enunciado) { alert('Ingresá el ejercicio.'); return; }
+  const btn = document.getElementById('btn-parcial');
+  btn.disabled = true;
+  document.getElementById('parcial-status').textContent = 'Generando pantallas...';
+  const out = document.getElementById('derbuk-output');
+  out.style.display = 'block'; out.textContent = '';
+  let texto = '';
+  try {
+    const prompt = `Ejercicio: ${enunciado}` + (unidad ? `\nUnidad: ${unidad}` : '');
+    const resp = await fetch('/api/proxy/anthropic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 3000, stream: true,
+        system: DERBUK_SISTEMA,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const ev = JSON.parse(data);
+          if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+            texto += ev.delta.text;
+            out.textContent = texto; out.scrollTop = out.scrollHeight;
+          }
+        } catch(e) {}
+      }
+    }
+    document.getElementById('parcial-status').textContent = '✓ Listo';
+  } catch(err) {
+    out.textContent = 'Error: ' + err.message;
+  }
+  btn.disabled = false;
+}
+
 init();
 </script>
 </body>
 </html>
 """
 
+@app.route("/api/proxy/anthropic", methods=["POST"])
+def api_proxy_anthropic():
+    """
+    Proxy para llamadas a la API de Anthropic desde el browser.
+    Evita el bloqueo CORS que impide llamadas directas desde JavaScript.
+    Body JSON: mismo formato que /v1/messages de Anthropic.
+    Header requerido: X-Api-Key con la API key del usuario.
+    """
+    import urllib.request
+    import urllib.error
+
+    api_key = request.headers.get("X-Api-Key", "")
+    if not api_key:
+        return jsonify({"error": "Falta el header X-Api-Key"}), 400
+
+    body = request.get_data()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+
+    stream = "stream" in request.get_json(force=True, silent=True) and \
+             request.get_json(force=True, silent=True).get("stream", False)
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            if stream:
+                def generate():
+                    while True:
+                        chunk = resp.read(512)
+                        if not chunk:
+                            break
+                        yield chunk
+                return Response(
+                    generate(),
+                    status=resp.status,
+                    mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+            else:
+                data = resp.read()
+                return Response(data, status=resp.status, mimetype="application/json")
+    except urllib.error.HTTPError as e:
+        return Response(e.read(), status=e.code, mimetype="application/json")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/")
 def index():
     return HTML
-
-@app.route("/batch")
-def batch():
-    p = Path(__file__).parent / "agentes" / "subir_pdf" / "subir_batch.html"
-    return p.read_text(encoding="utf-8")
 
 
 # ── arranque ──────────────────────────────────────────────────────────────────

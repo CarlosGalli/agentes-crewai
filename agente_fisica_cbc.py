@@ -304,7 +304,7 @@ Inventá datos numéricos realistas y generá la solución completa paso a paso 
 
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1500,
+        max_tokens=4000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}]
     )
