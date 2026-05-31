@@ -93,9 +93,27 @@ def _viewer_html(tab_id: str) -> str:
 
 # ── Lógica de inserción en index.html ─────────────────────────────────────────
 
+def _div_close_pos(html: str, open_pos: int) -> int:
+    """Dado el inicio de un '<div', devuelve la posición del '</div>' que lo cierra."""
+    depth = 1
+    i = open_pos + 4          # saltar '<div'
+    while i < len(html) and depth > 0:
+        if html[i:i+4] == '<div':
+            depth += 1
+            i += 4
+        elif html[i:i+6] == '</div>':
+            depth -= 1
+            if depth == 0:
+                return i
+            i += 6
+        else:
+            i += 1
+    return -1
+
+
 def _insertar_en_grid(html: str, tab_id: str, card: str) -> str:
-    """Inserta una tarjeta dentro del pr-card-grid existente."""
-    # Marca: la línea justo antes del cierre del grid (antes del pr-viewer)
+    """Inserta una tarjeta al final del pr-card-grid de la sección indicada."""
+    # Caso normal: grid seguido de viewer (estructura habitual)
     pattern = re.compile(
         r'(id="prcontent-' + tab_id + r'".*?<div class="pr-card-grid">.*?)'
         r'(\s*</div>\s*\n\s*<div class="pr-viewer")',
@@ -104,13 +122,26 @@ def _insertar_en_grid(html: str, tab_id: str, card: str) -> str:
     def replacer(m):
         return m.group(1) + "\n" + card + "\n      " + m.group(2).lstrip()
     new_html, n = pattern.subn(replacer, html)
-    if n == 0:
-        raise ValueError(f"No se encontró el pr-card-grid para tab '{tab_id}'")
-    return new_html
+    if n > 0:
+        return new_html
+
+    # Fallback: sin viewer — usar conteo de profundidad para hallar el cierre del grid
+    sec_pos  = html.find(f'id="prcontent-{tab_id}"')
+    grid_tag = '<div class="pr-card-grid">'
+    grid_pos = html.find(grid_tag, sec_pos)
+    if grid_pos == -1:
+        raise ValueError(f"No se encontró pr-card-grid en prcontent-{tab_id}")
+
+    close = _div_close_pos(html, grid_pos)
+    if close == -1:
+        raise ValueError(f"HTML mal formado: sin cierre de pr-card-grid en prcontent-{tab_id}")
+
+    return html[:close] + "\n" + card + "\n      " + html[close:]
 
 
 def _reemplazar_placeholder(html: str, tab_id: str, solapa: str, card: str) -> str:
-    """Reemplaza el div placeholder con card-grid + viewer."""
+    """Reemplaza el div placeholder con card-grid + viewer.
+    Lanza ValueError si el texto del placeholder no coincide."""
     placeholder_text = re.escape(PLACEHOLDER[solapa])
     pattern = re.compile(
         r'(<div id="prcontent-' + tab_id + r'"[^>]*>)\s*'
@@ -129,11 +160,34 @@ def _reemplazar_placeholder(html: str, tab_id: str, solapa: str, card: str) -> s
     )
     new_html, n = pattern.subn(replacement, html)
     if n == 0:
-        raise ValueError(
-            f"No se encontró el placeholder para tab '{solapa}'. "
-            f"¿Ya fue reemplazado? Agregá la tarjeta manualmente o revisá index.html."
-        )
+        raise ValueError(f"Placeholder de '{solapa}' no encontrado en index.html")
     return new_html
+
+
+def _crear_grid_en_seccion(html: str, tab_id: str, card: str) -> str:
+    """Reemplaza todo el contenido interno de prcontent-{tab_id} con un grid + viewer nuevos.
+    Usa conteo de profundidad para hallar el cierre exacto de la sección."""
+    viewer = _viewer_html(tab_id)
+    new_content = (
+        '\n      <div class="pr-card-grid">\n'
+        + card + '\n'
+        + '      </div>\n'
+        + viewer + '\n'
+        + '    '
+    )
+
+    marker = f'<div id="prcontent-{tab_id}"'
+    start  = html.find(marker)
+    if start == -1:
+        raise ValueError(f"No se encontró la sección prcontent-{tab_id} en index.html")
+
+    tag_end = html.index('>', start) + 1   # posición justo después del '>'
+
+    close = _div_close_pos(html, start)
+    if close == -1:
+        raise ValueError(f"HTML mal formado: sin cierre de prcontent-{tab_id}")
+
+    return html[:tag_end] + new_content + html[close:]
 
 
 def actualizar_index_html(titulo_completo: str, solapa: str, pdf_filename: str,
@@ -142,24 +196,36 @@ def actualizar_index_html(titulo_completo: str, solapa: str, pdf_filename: str,
     html   = INDEX_HTML.read_text(encoding="utf-8")
     card   = _card_html(tab_id, titulo_completo, pdf_filename)
 
-    # Buscar el contenido del tab para determinar si ya tiene grid o solo placeholder
     content_marker = f'id="prcontent-{tab_id}"'
     pos = html.find(content_marker)
     if pos == -1:
         raise ValueError(f"No se encontró '{content_marker}' en index.html")
 
-    # Buscar la sección del tab (hasta el próximo prcontent o fin)
     next_tab = html.find('id="prcontent-', pos + len(content_marker))
     section  = html[pos: next_tab if next_tab != -1 else pos + 8000]
 
     if '<div class="pr-card-grid">' in section:
+        # El grid ya existe: agregar tarjeta al final
         html = _insertar_en_grid(html, tab_id, card)
         if verbose:
             print(f"  ✓ Tarjeta insertada en grid existente de '{solapa}'")
     else:
-        html = _reemplazar_placeholder(html, tab_id, solapa, card)
-        if verbose:
-            print(f"  ✓ Placeholder reemplazado con grid y tarjeta en '{solapa}'")
+        # Sin grid: intentar reemplazar placeholder conocido
+        placeholder_ok = False
+        if solapa in PLACEHOLDER:
+            try:
+                html = _reemplazar_placeholder(html, tab_id, solapa, card)
+                placeholder_ok = True
+                if verbose:
+                    print(f"  ✓ Placeholder reemplazado con grid y tarjeta en '{solapa}'")
+            except ValueError:
+                pass  # texto del placeholder cambió → crear grid desde cero
+
+        if not placeholder_ok:
+            # Crear grid completo reemplazando el contenido actual de la sección
+            html = _crear_grid_en_seccion(html, tab_id, card)
+            if verbose:
+                print(f"  ✓ Grid creado desde cero en sección '{solapa}'")
 
     INDEX_HTML.write_text(html, encoding="utf-8")
 
