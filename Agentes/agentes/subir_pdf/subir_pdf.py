@@ -228,6 +228,88 @@ def run(
     return msg
 
 
+# ── Batch: múltiples PDFs con único commit ────────────────────────────────────
+
+def run_batch(archivos: list, verbose: bool = True) -> str:
+    """
+    Procesa múltiples PDFs y hace un único git commit + push.
+
+    Cada dict en `archivos` debe tener:
+        ruta_pdf         (str): ruta al archivo PDF (puede ser temp)
+        nombre_original  (str, opcional): nombre original del archivo
+        titulo           (str): título del examen
+        cuatrimestre     (str): cuatrimestre/año (puede ser vacío)
+        solapa           (str): "1er Parcial" | "2do Parcial" | "Finales"
+    """
+    if not archivos:
+        raise ValueError("La lista de archivos está vacía")
+
+    processed    = []
+    files_to_add = []
+
+    for i, item in enumerate(archivos, 1):
+        titulo       = item["titulo"]
+        cuatrimestre = item.get("cuatrimestre", "")
+        solapa       = item["solapa"]
+        ruta_pdf     = item["ruta_pdf"]
+        nombre_orig  = item.get("nombre_original") or Path(ruta_pdf).name
+
+        ruta = Path(ruta_pdf.strip('"'))
+        if not ruta.exists():
+            raise FileNotFoundError(f"Archivo no encontrado: {ruta_pdf}")
+        if ruta.suffix.lower() != ".pdf":
+            raise ValueError(f"El archivo debe ser un PDF: {ruta_pdf}")
+        if solapa not in SOLAPAS:
+            raise ValueError(f"Solapa inválida '{solapa}'")
+
+        titulo_completo = f"{titulo} — {cuatrimestre}" if cuatrimestre.strip() else titulo
+        pdf_filename    = _nombre_salida(nombre_orig)
+        dest            = DOCS_DIR / pdf_filename
+
+        if verbose:
+            print(f"\n  [{i}/{len(archivos)}] {titulo_completo}")
+            print(f"  PDF origen:  {ruta}")
+            print(f"  Destino:     {dest}")
+            print(f"  Solapa:      {solapa}")
+
+        DOCS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ruta, dest)
+        if verbose:
+            print("  ✓ PDF copiado")
+
+        actualizar_index_html(titulo_completo, solapa, pdf_filename, verbose)
+
+        files_to_add.append(f"public/docs/{pdf_filename}")
+        processed.append(titulo_completo)
+
+    files_to_add.append("public/index.html")
+    git = lambda *args: ["git", "-C", str(REPO_ROOT), *args]
+
+    if len(processed) == 1:
+        commit_msg = f"feat: agregar PDF resuelto — {processed[0][:70]}"
+    else:
+        commit_msg = f"feat: agregar {len(archivos)} PDFs resueltos"
+
+    cmds = [
+        (git("add", *files_to_add),       "add"),
+        (git("commit", "-m", commit_msg), "commit"),
+        (git("push", "origin", "main"),   "push"),
+    ]
+    for cmd, label in cmds:
+        if verbose:
+            print(f"  $ git {label}...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Error en 'git {label}':\n{result.stderr.strip()}")
+        if verbose and result.stdout.strip():
+            print(f"    {result.stdout.strip()}")
+
+    msg = f"✅ Publicados {len(archivos)} PDF(s): {', '.join(processed)}"
+    if verbose:
+        print(f"\n  {msg}")
+    return msg
+
+
 # ── Modo interactivo ──────────────────────────────────────────────────────────
 
 def _pedir(prompt: str, opciones: list = None) -> str:

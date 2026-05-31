@@ -48,6 +48,12 @@ def _coerce(valor, tipo, default=None):
             return int(valor)
         except Exception:
             return default
+    if tipo == "archivo_multiple":
+        try:
+            parsed = json.loads(valor) if isinstance(valor, str) else valor
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
     return valor
 
 
@@ -216,6 +222,45 @@ def api_upload_temp():
     return jsonify({"path": tmp_path, "nombre": f.filename})
 
 
+@app.route("/api/ejecutar-multi-pdf", methods=["POST"])
+def api_ejecutar_multi_pdf():
+    """Lanza run_batch con múltiples PDFs. Body: { "archivos": [...] }"""
+    body     = request.get_json(force=True)
+    archivos = body.get("archivos", [])
+    if not archivos:
+        return jsonify({"error": "No se enviaron archivos"}), 400
+
+    job_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    q: queue.Queue = queue.Queue()
+    _jobs[job_id] = {"queue": q, "status": "running", "resultado": None}
+
+    def _run():
+        class LogCapture:
+            def write(self, msg):
+                if msg.strip():
+                    q.put({"tipo": "log", "texto": msg.rstrip()})
+            def flush(self):
+                pass
+        orig = sys.stdout
+        sys.stdout = LogCapture()
+        try:
+            from agentes.subir_pdf.subir_pdf import run_batch
+            resultado = run_batch(archivos, verbose=True)
+            sys.stdout = orig
+            _jobs[job_id]["status"]    = "ok"
+            _jobs[job_id]["resultado"] = resultado
+            q.put({"tipo": "fin", "status": "ok", "resultado": resultado})
+        except Exception as e:
+            import traceback
+            sys.stdout = orig
+            _jobs[job_id]["status"] = "error"
+            q.put({"tipo": "log",  "texto": traceback.format_exc()})
+            q.put({"tipo": "fin",  "status": "error", "resultado": str(e)})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
 # ── HTML principal ────────────────────────────────────────────────────────────
 
 HTML = r"""<!DOCTYPE html>
@@ -342,6 +387,34 @@ HTML = r"""<!DOCTYPE html>
   .dropzone .dz-icon { font-size: 20px; margin-bottom: 6px; display: block; }
   .dropzone .dz-label { font-size: 13px; }
   .dropzone .dz-preview { font-size: 13px; font-weight: 600; }
+
+  /* multi-pdf upload */
+  .mfr { background: var(--white); border: 1px solid var(--border);
+          border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .mfr-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .mfr-icon { font-size: 16px; flex-shrink: 0; }
+  .mfr-name { font-size: 13px; font-weight: 600; flex: 1; color: var(--dark);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mfr-remove { background: none; border: none; color: var(--gray); cursor: pointer;
+                font-size: 13px; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
+  .mfr-remove:hover { background: #fee; color: var(--red); }
+  .mfr-fields { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  .mfr-field { display: flex; flex-direction: column; gap: 3px; }
+  .mfr-label { font-size: 10px; font-weight: 700; color: var(--gray);
+               text-transform: uppercase; letter-spacing: .5px; }
+  .mfr-error { margin-top: 8px; font-size: 12px; color: var(--red);
+               background: #fee8e8; border-radius: 4px; padding: 4px 8px; }
+
+  /* archivo_multiple */
+  .amf-item { display:flex; align-items:center; gap:8px; padding:6px 10px;
+              background:var(--bg); border:1px solid var(--border);
+              border-radius:6px; font-size:12px; color:var(--dark); }
+  .amf-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+  .amf-err  { font-size:11px; color:var(--red); flex-shrink:0; max-width:180px;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .amf-del  { background:none; border:none; color:var(--gray); cursor:pointer;
+              font-size:12px; padding:0 4px; flex-shrink:0; line-height:1; }
+  .amf-del:hover { color:var(--red); }
 </style>
 </head>
 <body>
@@ -469,6 +542,8 @@ function seleccionar(key, btn) {
 
 // ── renderizar parámetros ─────────────────────────────────────────────────────
 function renderParams(params) {
+  const ag = AGENTES[agenteActual];
+  if (ag && ag.ui_mode === 'multi_pdf') { renderMultiPdfUI(); return; }
   const c = document.getElementById('params-container');
   c.innerHTML = '';
   for (const p of params) {
@@ -553,6 +628,39 @@ function renderParams(params) {
       wrap.appendChild(hidden);
       row.appendChild(wrap);
 
+    } else if (p.tipo === 'archivo_multiple') {
+      const accept2 = (p.extensiones || []).join(',');
+      _amfLists[p.nombre] = [];
+      const wrap2 = document.createElement('div');
+      wrap2.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:8px;';
+      const fileInp2 = document.createElement('input');
+      fileInp2.type = 'file'; fileInp2.accept = accept2; fileInp2.multiple = true;
+      fileInp2.style.cssText = 'display:none;';
+      const hidden2 = document.createElement('input');
+      hidden2.type = 'hidden'; hidden2.id = 'param_' + p.nombre; hidden2.value = '[]';
+      const zone2 = document.createElement('div');
+      zone2.className = 'dropzone';
+      zone2.innerHTML = '<span class="dz-icon">📂</span><div class="dz-label">Arrastrá los archivos acá o hacé clic para seleccionar (múltiple)</div>';
+      const listDiv2 = document.createElement('div');
+      listDiv2.id = 'amf_list_' + p.nombre;
+      const _pname = p.nombre;
+      const _addFiles = (files) => {
+        for (const f of files) {
+          const idx = _amfLists[_pname].length;
+          _amfLists[_pname].push({file:f, nombre:f.name, path:null, status:'pending', error:null});
+          _amfRender(_pname);
+          _amfUpload(_pname, idx);
+        }
+      };
+      zone2.onclick     = () => fileInp2.click();
+      zone2.ondragover  = (e) => { e.preventDefault(); zone2.classList.add('over'); };
+      zone2.ondragleave = () => zone2.classList.remove('over');
+      zone2.ondrop = (e) => { e.preventDefault(); zone2.classList.remove('over'); _addFiles(Array.from(e.dataTransfer.files)); };
+      fileInp2.onchange = () => { _addFiles(Array.from(fileInp2.files)); fileInp2.value = ''; };
+      wrap2.appendChild(fileInp2); wrap2.appendChild(zone2);
+      wrap2.appendChild(listDiv2); wrap2.appendChild(hidden2);
+      row.appendChild(wrap2);
+
     } else if (p.tipo === 'archivo' || p.tipo === 'archivo_salida') {
       const inp = document.createElement('input');
       inp.type = 'text';
@@ -595,6 +703,7 @@ function renderParams(params) {
 async function ejecutar() {
   if (!agenteActual) return;
   const ag = AGENTES[agenteActual];
+  if (ag.ui_mode === 'multi_pdf') { await ejecutarMultiPdf(); return; }
 
   // recolectar params
   const params = {};
@@ -674,6 +783,217 @@ async function abrirResultado() {
 
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── archivo_multiple (tipo de parámetro genérico) ────────────────────────────
+const _amfLists = {};
+const _amfIcons = { pending:'⏳', uploading:'📤', ok:'✅', error:'❌' };
+
+function _amfRender(paramName) {
+  const list   = document.getElementById('amf_list_' + paramName);
+  const hidden = document.getElementById('param_' + paramName);
+  if (!list) return;
+  const files = _amfLists[paramName] || [];
+  list.innerHTML = files.map((f, i) => `
+    <div class="amf-item">
+      <span>${_amfIcons[f.status] || '⏳'}</span>
+      <span class="amf-name">${escHtml(f.nombre)}</span>
+      ${f.status === 'error' ? `<span class="amf-err">${escHtml(f.error || '')}</span>` : ''}
+      <button class="amf-del" onclick="_amfRemove('${paramName}',${i})" title="Quitar">✕</button>
+    </div>`).join('');
+  if (hidden) {
+    const ready = files.filter(f => f.status === 'ok').map(f => ({path: f.path, nombre: f.nombre}));
+    hidden.value = JSON.stringify(ready);
+  }
+}
+
+function _amfRemove(paramName, idx) {
+  _amfLists[paramName].splice(idx, 1);
+  _amfRender(paramName);
+}
+
+async function _amfUpload(paramName, idx) {
+  const entry = _amfLists[paramName][idx];
+  if (!entry) return;
+  entry.status = 'uploading';
+  _amfRender(paramName);
+  const fd = new FormData();
+  fd.append('archivo', entry.file);
+  try {
+    const r = await fetch('/api/upload-temp', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.path) { entry.path = d.path; entry.status = 'ok'; }
+    else { entry.status = 'error'; entry.error = d.error || 'Error desconocido'; }
+  } catch (e) { entry.status = 'error'; entry.error = e.message; }
+  _amfRender(paramName);
+}
+
+// ── multi-pdf upload ──────────────────────────────────────────────────────────
+let multiPdfFiles = [];
+const _mfrIcons = { pending:'⏳', uploading:'📤', ready:'✅', ok:'✔️', error:'❌' };
+
+function renderMultiPdfUI() {
+  multiPdfFiles = [];
+  const c = document.getElementById('params-container');
+  c.innerHTML = `
+    <div>
+      <div id="multi-dropzone" class="dropzone" style="margin-bottom:14px;">
+        <span class="dz-icon">📎</span>
+        <div class="dz-label">Arrastrá los PDFs acá o hacé clic para seleccionar varios</div>
+        <input type="file" id="multi-file-inp" accept=".pdf" multiple style="display:none;">
+      </div>
+      <div id="multi-file-list"></div>
+    </div>`;
+
+  const zone = document.getElementById('multi-dropzone');
+  const inp  = document.getElementById('multi-file-inp');
+  zone.onclick     = () => inp.click();
+  zone.ondragover  = (e) => { e.preventDefault(); zone.classList.add('over'); };
+  zone.ondragleave = () => zone.classList.remove('over');
+  zone.ondrop = (e) => {
+    e.preventDefault(); zone.classList.remove('over');
+    addMultiFiles(Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf')));
+  };
+  inp.onchange = () => { addMultiFiles(Array.from(inp.files)); inp.value = ''; };
+}
+
+function addMultiFiles(files) {
+  for (const f of files) {
+    multiPdfFiles.push({
+      file: f, tmpPath: null, nombre: f.name,
+      titulo: f.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' '),
+      cuatrimestre: '', solapa: '1er Parcial', status: 'pending', error: null
+    });
+  }
+  renderMultiFileList();
+  multiPdfFiles.forEach((e, i) => { if (e.status === 'pending') uploadMultiFile(i); });
+}
+
+function renderMultiFileList() {
+  const list = document.getElementById('multi-file-list');
+  if (!list) return;
+  list.innerHTML = multiPdfFiles.map((e, i) => `
+    <div class="mfr" id="mfr-${i}">
+      <div class="mfr-header">
+        <span class="mfr-icon">${_mfrIcons[e.status] || '⏳'}</span>
+        <span class="mfr-name">${escHtml(e.nombre)}</span>
+        <button class="mfr-remove" onclick="removeMultiFile(${i})" title="Quitar">✕</button>
+      </div>
+      <div class="mfr-fields">
+        <div class="mfr-field">
+          <div class="mfr-label">Título *</div>
+          <input class="param-input" value="${escHtml(e.titulo)}"
+            oninput="multiPdfFiles[${i}].titulo=this.value">
+        </div>
+        <div class="mfr-field">
+          <div class="mfr-label">Cuatrimestre</div>
+          <input class="param-input" placeholder="ej: 1C 2025" value="${escHtml(e.cuatrimestre)}"
+            oninput="multiPdfFiles[${i}].cuatrimestre=this.value">
+        </div>
+        <div class="mfr-field">
+          <div class="mfr-label">Solapa *</div>
+          <select class="param-input" onchange="multiPdfFiles[${i}].solapa=this.value">
+            <option value="1er Parcial"${e.solapa==='1er Parcial'?' selected':''}>1er Parcial</option>
+            <option value="2do Parcial"${e.solapa==='2do Parcial'?' selected':''}>2do Parcial</option>
+            <option value="Finales"${e.solapa==='Finales'?' selected':''}>Finales</option>
+          </select>
+        </div>
+      </div>
+      ${e.status==='error'?`<div class="mfr-error">${escHtml(e.error||'Error al subir')}</div>`:''}
+    </div>`).join('');
+}
+
+function removeMultiFile(i) {
+  multiPdfFiles.splice(i, 1);
+  renderMultiFileList();
+}
+
+async function uploadMultiFile(i) {
+  multiPdfFiles[i].status = 'uploading';
+  renderMultiFileList();
+  const fd = new FormData();
+  fd.append('archivo', multiPdfFiles[i].file);
+  try {
+    const r = await fetch('/api/upload-temp', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.path) {
+      multiPdfFiles[i].tmpPath = d.path;
+      multiPdfFiles[i].status  = 'ready';
+    } else {
+      multiPdfFiles[i].status = 'error';
+      multiPdfFiles[i].error  = d.error || 'Error desconocido';
+    }
+  } catch (err) {
+    multiPdfFiles[i].status = 'error';
+    multiPdfFiles[i].error  = err.message;
+  }
+  renderMultiFileList();
+}
+
+async function ejecutarMultiPdf() {
+  const ready = multiPdfFiles.filter(e => e.status === 'ready');
+  if (!ready.length) {
+    document.getElementById('run-status').textContent = '⚠ No hay archivos listos';
+    return;
+  }
+  const sin_titulo = ready.find(e => !e.titulo.trim());
+  if (sin_titulo) {
+    document.getElementById('run-status').textContent = '⚠ Completá todos los títulos';
+    return;
+  }
+
+  const archivos = ready.map(e => ({
+    ruta_pdf: e.tmpPath, nombre_original: e.nombre,
+    titulo: e.titulo.trim(), cuatrimestre: e.cuatrimestre.trim(), solapa: e.solapa,
+  }));
+
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  btn.innerHTML = '⏳&nbsp; Ejecutando…';
+  document.getElementById('run-status').textContent = '';
+  document.getElementById('resultado-bar').classList.remove('show');
+
+  const log = document.getElementById('log-card');
+  log.style.display = 'block';
+  log.innerHTML = `<span class="log-dim">Procesando ${ready.length} PDF(s)...</span>\n`;
+
+  const r = await fetch('/api/ejecutar-multi-pdf', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ archivos })
+  });
+  const d = await r.json();
+  if (d.error) {
+    log.innerHTML += `<span class="log-err">${escHtml(d.error)}</span>\n`;
+    btn.disabled = false; btn.innerHTML = '▶&nbsp; Ejecutar';
+    return;
+  }
+
+  const es = new EventSource('/api/stream/' + d.job_id);
+  es.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.tipo === 'ping') return;
+    if (msg.tipo === 'log') {
+      const cls = msg.texto.includes('Error') || msg.texto.includes('error') ? 'log-err' :
+                  msg.texto.includes('✓') || msg.texto.includes('✅') ? 'log-ok' : 'log-info';
+      log.innerHTML += `<span class="${cls}">${escHtml(msg.texto)}</span>\n`;
+      log.scrollTop = log.scrollHeight;
+    }
+    if (msg.tipo === 'fin') {
+      es.close();
+      btn.disabled = false; btn.innerHTML = '▶&nbsp; Ejecutar';
+      if (msg.status === 'ok') {
+        log.innerHTML += `<span class="log-fin-ok">✓ Completado.</span>\n`;
+        document.getElementById('run-status').textContent = '✓ Listo';
+        multiPdfFiles.forEach(e => { if (e.status === 'ready') e.status = 'ok'; });
+        renderMultiFileList();
+      } else {
+        log.innerHTML += `<span class="log-fin-err">✗ Error: ${escHtml(msg.resultado)}</span>\n`;
+        document.getElementById('run-status').textContent = '✗ Error';
+      }
+      log.scrollTop = log.scrollHeight;
+    }
+  };
 }
 
 init();

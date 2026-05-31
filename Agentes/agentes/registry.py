@@ -46,12 +46,30 @@ AGENTES = {
         ],
     },
 
+    "resolver_parciales": {
+        "nombre":      "Resolver Parciales",
+        "descripcion": "Resuelve múltiples parciales (JPG, PNG, PDF) y genera un PDF con resolución completa para cada uno",
+        "categoria":   "Educación",
+        "modulo":      "agentes.resolver_parciales.resolver_parciales",
+        "funcion":     "run",
+        "parametros": [
+            {
+                "nombre":      "archivos",
+                "tipo":        "archivo_multiple",
+                "label":       "Parciales a resolver (JPG, PNG, PDF)",
+                "requerido":   True,
+                "extensiones": [".jpg", ".jpeg", ".png", ".pdf"],
+            },
+        ],
+    },
+
     "subir_pdf": {
         "nombre":      "Subir PDF al sitio",
-        "descripcion": "Sube un PDF resuelto a la solapa correspondiente del sitio quimicacbc.com",
+        "descripcion": "Sube uno o varios PDFs resueltos a la solapa correspondiente del sitio quimicacbc.com",
         "categoria":   "QuimicaCBC",
         "modulo":      "agentes.subir_pdf.subir_pdf",
         "funcion":     "run",
+        "ui_mode":     "multi_pdf",
         "parametros": [
             {
                 "nombre":    "titulo",
